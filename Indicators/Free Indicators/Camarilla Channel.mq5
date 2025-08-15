@@ -54,6 +54,91 @@ double    ExtH3Buffer[];
 double    ExtH2Buffer[];
 double    ExtH1Buffer[];
 double    ExtL1Buffer[];
+double    ExtL2Buffer[];
+double    ExtL3Buffer[];
+double    ExtL4Buffer[];
+double    ExtL5Buffer[];
+
+//--- unique prefix for indicator objects
+string ExtPrefixUniq;
+//--- current chart scale
+long   ExtChartScale=2;
+//--- price labels should not be shown on the built-in VPS
+bool   ExtShowLabel=false;
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//--- check current timeframe
+   if(PeriodSeconds()>PeriodSeconds(PERIOD_D1))
+     {
+      Alert("Timeframe of chart must be D1 or lower. Exit");
+      return(INIT_FAILED);
+     }
+
+//--- if the indicator is running on the built-in VPS, price labels should not be shown
+   if(!TerminalInfoInteger(TERMINAL_VPS))
+      ExtShowLabel=InpShowLabel;  
+      
+//--- define buffers
+   SetIndexBuffer(0, ExtH5Buffer);
+   SetIndexBuffer(1, ExtH4Buffer);
+   SetIndexBuffer(2, ExtH3Buffer);
+   SetIndexBuffer(3, ExtH2Buffer);
+   SetIndexBuffer(4, ExtH1Buffer);
+   SetIndexBuffer(5, ExtL1Buffer);
+   SetIndexBuffer(6, ExtL2Buffer);
+   SetIndexBuffer(7, ExtL3Buffer);
+   SetIndexBuffer(8, ExtL4Buffer);
+   SetIndexBuffer(9, ExtL5Buffer);
+
+//--- indicator name
+   IndicatorSetString(INDICATOR_SHORTNAME, "Camarilla Channels");
+//--- number of digits of indicator value
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+
+//--- prepare prefix for objects
+   string number=StringFormat("%I64d", GetTickCount64());
+   ExtPrefixUniq=StringSubstr(number, StringLen(number)-4);
+   ExtPrefixUniq=ExtPrefixUniq+"_CH";
+   Print("Indicator \"Camarilla Channels\" started, prefix=", ExtPrefixUniq);
+
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+  {
+   static MqlRates LAST_DAY[];    // previous day
+   static datetime last_time=0;   // reference time
+   static datetime error_time=0;  // error output time
+
+//--- if the indicator has previously been calculated, start from the bar preceding the last one
+   int start=prev_calculated-1;
+
+//--- if this is the first calculation of the indicator, start from the first bar on the chart
+   if(prev_calculated==0)
+      start=0;
+
+//--- calculate levels for all bars in a loop
+   for(int i=start; i<rates_total; i++)
+     {
+      //--- get day opening time for the current bar
+      datetime rem_seconds=time[i]%PeriodSeconds(PERIOD_D1);
+      datetime open_time=time[i]-rem_seconds;
+
+      //--- if the opening time is different from the reference time, update LAST_DAY - level calculations will be based on this value
       if(open_time!=last_time)
         {
          //--- If you're running the indicator on this symbol for the first time,
@@ -103,7 +188,7 @@ double    ExtL1Buffer[];
      }
 
 //--- draw labels on levels
-   if(InpShowLabel)
+   if(ExtShowLabel)
      {
       ShowPriceLevels(time[rates_total-1], rates_total-1);
       ChartRedraw();
@@ -122,6 +207,19 @@ void OnDeinit(const int reason)
    ObjectsDeleteAll(0, ExtPrefixUniq, 0, OBJ_ARROW_RIGHT_PRICE);
    ChartRedraw(0);
   }
+//+------------------------------------------------------------------+
+//| Handles CHARTEVENT_CHART_CHANGE to track chart window updates    |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long& lparam, const double& dparam, const string& sparam)
+  {
+   if(id==CHARTEVENT_CHART_CHANGE)
+      if(!ChartGetInteger(0, CHART_SCALE, 0, ExtChartScale))
+        {
+         //--- output an error message to the Experts journal
+         Print(__FUNCTION__+", ChartGetInteger(CHART_SCALE) failed, error = ", GetLastError());
+        }
+//---
+  }  
 //+------------------------------------------------------------------+
 //|  Show prices' levels                                             |
 //+------------------------------------------------------------------+
@@ -149,14 +247,8 @@ bool ShowRightPrice(const string name, datetime time, double price, color clr)
       return(false);
      }
 
-//--- make the label size adaptive
-   long scale=2;
-   if(!ChartGetInteger(0, CHART_SCALE, 0, scale))
-     {
-      //--- output an error message to the Experts journal
-      Print(__FUNCTION__+", ChartGetInteger(CHART_SCALE) failed, error = ", GetLastError());
-     }
-   int width=scale>1 ? 2:1;  // if chart scale > 1, then label size = 2
+//--- adjust label size based on chart scale
+   int width=ExtChartScale>1 ? 2:1;  // if chart scale > 1, then label size = 2
 
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
